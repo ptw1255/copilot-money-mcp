@@ -10,6 +10,7 @@ import type {
   Account,
   InvestmentPrice,
   InvestmentSplit,
+  Item,
 } from '../../src/models/index.js';
 
 // Mock data
@@ -280,6 +281,39 @@ const mockInvestmentSplits: InvestmentSplit[] = [
     to_factor: 7,
     from_factor: 1,
     multiplier: 7,
+  },
+];
+
+// Mock items (Plaid connections) for testing
+const mockItems: Item[] = [
+  {
+    item_id: 'item1',
+    institution_id: 'ins_3',
+    institution_name: 'Chase',
+    connection_status: 'active',
+    needs_update: false,
+    last_successful_update: '2024-01-20T10:00:00Z',
+    account_count: 3,
+  },
+  {
+    item_id: 'item2',
+    institution_id: 'ins_5',
+    institution_name: 'Wells Fargo',
+    connection_status: 'error',
+    needs_update: true,
+    error_code: 'ITEM_LOGIN_REQUIRED',
+    error_message: 'Login credentials have changed',
+    last_failed_update: '2024-01-18T08:00:00Z',
+    account_count: 2,
+  },
+  {
+    item_id: 'item3',
+    institution_id: 'ins_10',
+    institution_name: 'Vanguard',
+    connection_status: 'active',
+    needs_update: false,
+    last_successful_update: '2024-01-19T15:00:00Z',
+    account_count: 1,
   },
 ];
 
@@ -1572,12 +1606,71 @@ describe('refreshDatabase', () => {
       expect(result.count).toBe(4);
     });
   });
+
+  describe('getConnections', () => {
+    beforeEach(() => {
+      (db as any)._items = [...mockItems];
+    });
+
+    test('returns proper structure with all fields', async () => {
+      const result = await tools.getConnections({});
+      expect(result.count).toBe(3);
+      expect(result.connections).toBeDefined();
+      expect(Array.isArray(result.connections)).toBe(true);
+    });
+
+    test('filters by connection_status', async () => {
+      const result = await tools.getConnections({ connection_status: 'active' });
+      expect(result.count).toBe(2);
+      expect(result.connections.every((c) => c.connection_status === 'active')).toBe(true);
+    });
+
+    test('filters by connection_status error', async () => {
+      const result = await tools.getConnections({ connection_status: 'error' });
+      expect(result.count).toBe(1);
+      expect(result.connections[0]!.institution_name).toBe('Wells Fargo');
+    });
+
+    test('filters by institution_id', async () => {
+      const result = await tools.getConnections({ institution_id: 'ins_3' });
+      expect(result.count).toBe(1);
+      expect(result.connections[0]!.institution_name).toBe('Chase');
+    });
+
+    test('filters by needs_update true', async () => {
+      const result = await tools.getConnections({ needs_update: true });
+      expect(result.count).toBe(1);
+      expect(result.connections[0]!.institution_name).toBe('Wells Fargo');
+    });
+
+    test('filters by needs_update false', async () => {
+      const result = await tools.getConnections({ needs_update: false });
+      expect(result.count).toBe(2);
+      expect(result.connections.every((c) => c.needs_update === false)).toBe(true);
+    });
+
+    test('returns empty when no connections match', async () => {
+      const result = await tools.getConnections({ connection_status: 'disconnected' });
+      expect(result.count).toBe(0);
+      expect(result.connections).toEqual([]);
+    });
+
+    test('returns all connections with no filters', async () => {
+      const result = await tools.getConnections();
+      expect(result.count).toBe(3);
+    });
+
+    test('returns all connections with empty options', async () => {
+      const result = await tools.getConnections({});
+      expect(result.count).toBe(3);
+    });
+  });
 });
 
 describe('createToolSchemas', () => {
-  test('returns 10 tool schemas', async () => {
+  test('returns 11 tool schemas', async () => {
     const schemas = createToolSchemas();
-    expect(schemas).toHaveLength(10);
+    expect(schemas).toHaveLength(11);
   });
 
   test('all tools have readOnlyHint: true', async () => {
@@ -1615,8 +1708,9 @@ describe('createToolSchemas', () => {
     expect(names).toContain('get_goals');
     expect(names).toContain('get_investment_prices');
     expect(names).toContain('get_investment_splits');
+    expect(names).toContain('get_connections');
 
-    // Should have exactly 10 tools
-    expect(names.length).toBe(10);
+    // Should have exactly 11 tools
+    expect(names.length).toBe(11);
   });
 });

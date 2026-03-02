@@ -151,6 +151,12 @@ export class CopilotMoneyServer {
           );
           break;
 
+        case 'get_connections':
+          result = await this.tools.getConnections(
+            (typedArgs as Parameters<typeof this.tools.getConnections>[0]) || {}
+          );
+          break;
+
         default:
           return {
             content: [

@@ -12,7 +12,13 @@ import {
   isIncomeCategory,
   isKnownPlaidCategory,
 } from '../utils/categories.js';
-import type { Transaction, Account, InvestmentPrice, InvestmentSplit } from '../models/index.js';
+import type {
+  Transaction,
+  Account,
+  InvestmentPrice,
+  InvestmentSplit,
+  Item,
+} from '../models/index.js';
 import { getTransactionDisplayName, getRecurringDisplayName } from '../models/index.js';
 import {
   getRootCategories,
@@ -1923,6 +1929,36 @@ export class CopilotMoneyTools {
       splits: paginatedSplits,
     };
   }
+
+  /**
+   * Get Plaid connection health for linked financial institutions.
+   *
+   * Shows connection status, last sync times, error codes, and whether
+   * re-authentication is needed. Use this to check if account data is fresh
+   * and all institutions are connected properly.
+   */
+  async getConnections(options?: {
+    connection_status?: string;
+    institution_id?: string;
+    needs_update?: boolean;
+  }): Promise<{
+    count: number;
+    connections: Item[];
+  }> {
+    const { connection_status, institution_id, needs_update } = options ?? {};
+
+    // Query database with filters
+    const connections = await this.db.getItems({
+      connectionStatus: connection_status,
+      institutionId: institution_id,
+      needsUpdate: needs_update,
+    });
+
+    return {
+      count: connections.length,
+      connections,
+    };
+  }
 }
 
 /**
@@ -2371,6 +2407,31 @@ export function createToolSchemas(): ToolSchema[] {
             type: 'integer',
             description: 'Number of results to skip for pagination (default: 0)',
             default: 0,
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    {
+      name: 'get_connections',
+      description:
+        'Get Plaid connection health for linked financial institutions. Shows connection status, last sync times, error codes, and whether re-authentication is needed. Use this to check if account data is fresh and all institutions are connected properly.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          connection_status: {
+            type: 'string',
+            description: 'Filter by status (e.g., "active", "error", "disconnected")',
+          },
+          institution_id: {
+            type: 'string',
+            description: 'Filter by Plaid institution ID',
+          },
+          needs_update: {
+            type: 'boolean',
+            description: 'Filter by whether connection needs re-authentication',
           },
         },
       },
