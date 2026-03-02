@@ -5,7 +5,7 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { CopilotMoneyTools, createToolSchemas } from '../../src/tools/tools.js';
 import { CopilotDatabase } from '../../src/core/database.js';
-import type { Transaction, Account } from '../../src/models/index.js';
+import type { Transaction, Account, InvestmentPrice } from '../../src/models/index.js';
 
 // Mock data
 // Copilot Money format: positive = expenses, negative = income
@@ -189,6 +189,52 @@ const mockGoalHistoryWrongOrder = [
     month: '2024-03', // Latest month - should use this value
     current_amount: 800,
     user_id: 'user1',
+  },
+];
+
+// Mock investment prices for testing
+const mockInvestmentPrices: InvestmentPrice[] = [
+  {
+    investment_id: 'inv1',
+    ticker_symbol: 'AAPL',
+    price: 150.0,
+    close_price: 149.5,
+    date: '2024-01-15',
+    price_type: 'hf',
+    currency: 'USD',
+  },
+  {
+    investment_id: 'inv1',
+    ticker_symbol: 'AAPL',
+    price: 155.0,
+    close_price: 154.0,
+    date: '2024-02-10',
+    price_type: 'hf',
+    currency: 'USD',
+  },
+  {
+    investment_id: 'inv2',
+    ticker_symbol: 'VTSAX',
+    price: 100.0,
+    month: '2024-01',
+    price_type: 'daily',
+    currency: 'USD',
+  },
+  {
+    investment_id: 'inv2',
+    ticker_symbol: 'VTSAX',
+    price: 105.0,
+    month: '2024-02',
+    price_type: 'daily',
+    currency: 'USD',
+  },
+  {
+    investment_id: 'inv3',
+    ticker_symbol: 'BTC-USD',
+    price: 42000.0,
+    date: '2024-01-20',
+    price_type: 'hf',
+    currency: 'USD',
   },
 ];
 
@@ -1285,12 +1331,128 @@ describe('refreshDatabase', () => {
     expect(result.cache_info.oldest_transaction_date).toBe('2024-01-01');
     expect(result.cache_info.newest_transaction_date).toBe('2024-03-01');
   });
+
+  describe('getInvestmentPrices', () => {
+    beforeEach(() => {
+      (db as any)._investmentPrices = [...mockInvestmentPrices];
+    });
+
+    test('returns proper structure with all fields', async () => {
+      const result = await tools.getInvestmentPrices({});
+      expect(result.count).toBe(5);
+      expect(result.total_count).toBe(5);
+      expect(result.offset).toBe(0);
+      expect(result.has_more).toBe(false);
+      expect(result.tickers).toBeDefined();
+      expect(Array.isArray(result.tickers)).toBe(true);
+      expect(result.prices).toBeDefined();
+      expect(Array.isArray(result.prices)).toBe(true);
+    });
+
+    test('extracts unique ticker symbols', async () => {
+      const result = await tools.getInvestmentPrices({});
+      expect(result.tickers).toContain('AAPL');
+      expect(result.tickers).toContain('VTSAX');
+      expect(result.tickers).toContain('BTC-USD');
+      expect(result.tickers.length).toBe(3);
+    });
+
+    test('filters by ticker_symbol', async () => {
+      const result = await tools.getInvestmentPrices({ ticker_symbol: 'AAPL' });
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(2);
+      expect(result.prices.every((p) => p.ticker_symbol === 'AAPL')).toBe(true);
+      expect(result.tickers).toEqual(['AAPL']);
+    });
+
+    test('filters by date range', async () => {
+      const result = await tools.getInvestmentPrices({
+        start_date: '2024-01-01',
+        end_date: '2024-01-31',
+      });
+      // Should include hf prices with dates in Jan (AAPL 2024-01-15, BTC-USD 2024-01-20)
+      // daily prices have month field, not date, so db filter uses date field
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(2);
+    });
+
+    test('filters by price_type daily', async () => {
+      const result = await tools.getInvestmentPrices({ price_type: 'daily' });
+      expect(result.count).toBe(2);
+      expect(result.prices.every((p) => p.price_type === 'daily')).toBe(true);
+      expect(result.tickers).toEqual(['VTSAX']);
+    });
+
+    test('filters by price_type hf', async () => {
+      const result = await tools.getInvestmentPrices({ price_type: 'hf' });
+      expect(result.count).toBe(3);
+      expect(result.prices.every((p) => p.price_type === 'hf')).toBe(true);
+    });
+
+    test('respects limit pagination', async () => {
+      const result = await tools.getInvestmentPrices({ limit: 2 });
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(5);
+      expect(result.has_more).toBe(true);
+    });
+
+    test('respects offset pagination', async () => {
+      const result = await tools.getInvestmentPrices({ limit: 2, offset: 3 });
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(5);
+      expect(result.offset).toBe(3);
+      expect(result.has_more).toBe(false);
+    });
+
+    test('offset beyond total returns empty', async () => {
+      const result = await tools.getInvestmentPrices({ offset: 100 });
+      expect(result.count).toBe(0);
+      expect(result.total_count).toBe(5);
+      expect(result.has_more).toBe(false);
+    });
+
+    test('returns empty when no prices match', async () => {
+      const result = await tools.getInvestmentPrices({ ticker_symbol: 'NONEXISTENT' });
+      expect(result.count).toBe(0);
+      expect(result.total_count).toBe(0);
+      expect(result.has_more).toBe(false);
+      expect(result.tickers).toEqual([]);
+      expect(result.prices).toEqual([]);
+    });
+
+    test('combines ticker and price_type filters', async () => {
+      const result = await tools.getInvestmentPrices({
+        ticker_symbol: 'AAPL',
+        price_type: 'hf',
+      });
+      expect(result.count).toBe(2);
+      expect(result.prices.every((p) => p.ticker_symbol === 'AAPL' && p.price_type === 'hf')).toBe(
+        true
+      );
+    });
+
+    test('accepts YYYY-MM format for date filters', async () => {
+      // Should not throw for YYYY-MM format
+      const result = await tools.getInvestmentPrices({
+        start_date: '2024-01',
+        end_date: '2024-02',
+      });
+      expect(result).toBeDefined();
+    });
+
+    test('defaults limit to 100 and offset to 0', async () => {
+      const result = await tools.getInvestmentPrices({});
+      expect(result.offset).toBe(0);
+      // With only 5 items, count should be 5 (less than default 100)
+      expect(result.count).toBe(5);
+    });
+  });
 });
 
 describe('createToolSchemas', () => {
-  test('returns 8 tool schemas', async () => {
+  test('returns 9 tool schemas', async () => {
     const schemas = createToolSchemas();
-    expect(schemas).toHaveLength(8);
+    expect(schemas).toHaveLength(9);
   });
 
   test('all tools have readOnlyHint: true', async () => {
@@ -1317,7 +1479,7 @@ describe('createToolSchemas', () => {
     const schemas = createToolSchemas();
     const names = schemas.map((s) => s.name);
 
-    // Core 8 tools
+    // Core tools
     expect(names).toContain('get_transactions');
     expect(names).toContain('get_cache_info');
     expect(names).toContain('refresh_database');
@@ -1326,8 +1488,9 @@ describe('createToolSchemas', () => {
     expect(names).toContain('get_recurring_transactions');
     expect(names).toContain('get_budgets');
     expect(names).toContain('get_goals');
+    expect(names).toContain('get_investment_prices');
 
-    // Should have exactly 8 tools
-    expect(names.length).toBe(8);
+    // Should have exactly 9 tools
+    expect(names.length).toBe(9);
   });
 });

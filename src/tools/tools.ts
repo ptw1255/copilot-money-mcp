@@ -12,7 +12,7 @@ import {
   isIncomeCategory,
   isKnownPlaidCategory,
 } from '../utils/categories.js';
-import type { Transaction, Account } from '../models/index.js';
+import type { Transaction, Account, InvestmentPrice } from '../models/index.js';
 import { getTransactionDisplayName, getRecurringDisplayName } from '../models/index.js';
 import {
   getRootCategories,
@@ -111,6 +111,22 @@ function validateDate(date: string | undefined, paramName: string): string | und
   if (date === undefined) return undefined;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     throw new Error(`Invalid ${paramName} format. Expected YYYY-MM-DD, got: ${date}`);
+  }
+  return date;
+}
+
+/**
+ * Validates a date string is in YYYY-MM or YYYY-MM-DD format.
+ *
+ * @param date - The date string to validate
+ * @param paramName - Parameter name for error messages
+ * @returns The validated date string
+ * @throws Error if date format is invalid
+ */
+function validateDateOrMonth(date: string | undefined, paramName: string): string | undefined {
+  if (date === undefined) return undefined;
+  if (!/^\d{4}-\d{2}(-\d{2})?$/.test(date)) {
+    throw new Error(`Invalid ${paramName} format. Expected YYYY-MM-DD or YYYY-MM, got: ${date}`);
   }
   return date;
 }
@@ -1803,6 +1819,62 @@ export class CopilotMoneyTools {
       })),
     };
   }
+
+  /**
+   * Get investment price history for portfolio tracking.
+   *
+   * Returns daily and high-frequency price data for stocks, ETFs, mutual funds, and crypto.
+   * Filter by ticker symbol, date range, or price type.
+   */
+  async getInvestmentPrices(options: {
+    ticker_symbol?: string;
+    start_date?: string;
+    end_date?: string;
+    price_type?: 'daily' | 'hf';
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    count: number;
+    total_count: number;
+    offset: number;
+    has_more: boolean;
+    tickers: string[];
+    prices: InvestmentPrice[];
+  }> {
+    const { ticker_symbol, price_type } = options;
+
+    // Validate inputs
+    const validatedLimit = validateLimit(options.limit, DEFAULT_QUERY_LIMIT);
+    const validatedOffset = validateOffset(options.offset);
+    const start_date = validateDateOrMonth(options.start_date, 'start_date');
+    const end_date = validateDateOrMonth(options.end_date, 'end_date');
+
+    // Query database with filters
+    const prices = await this.db.getInvestmentPrices({
+      tickerSymbol: ticker_symbol,
+      startDate: start_date,
+      endDate: end_date,
+      priceType: price_type,
+    });
+
+    // Extract unique ticker symbols
+    const tickers = [...new Set(prices.map((p) => p.ticker_symbol).filter(Boolean))] as string[];
+
+    const totalCount = prices.length;
+    const hasMore = validatedOffset + validatedLimit < totalCount;
+
+    // Apply pagination
+    const paginatedPrices = prices.slice(validatedOffset, validatedOffset + validatedLimit);
+
+    return {
+      count: paginatedPrices.length,
+      total_count: totalCount,
+      offset: validatedOffset,
+      has_more: hasMore,
+      tickers,
+      prices: paginatedPrices,
+    };
+  }
 }
 
 /**
@@ -2171,6 +2243,49 @@ export function createToolSchemas(): ToolSchema[] {
             type: 'boolean',
             description: 'Only return active goals (default: false)',
             default: false,
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    {
+      name: 'get_investment_prices',
+      description:
+        'Get investment price history for portfolio tracking. Returns daily and high-frequency price data for stocks, ETFs, mutual funds, and crypto. Filter by ticker symbol, date range, or price type (daily/hf). Includes OHLCV data when available. Use this with get_investment_splits for accurate historical price calculations.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ticker_symbol: {
+            type: 'string',
+            description: 'Filter by ticker symbol (e.g., "AAPL", "BTC-USD", "VTSAX")',
+          },
+          start_date: {
+            type: 'string',
+            description: 'Start date (YYYY-MM-DD or YYYY-MM)',
+            pattern: '^\\d{4}-\\d{2}(-\\d{2})?$',
+          },
+          end_date: {
+            type: 'string',
+            description: 'End date (YYYY-MM-DD or YYYY-MM)',
+            pattern: '^\\d{4}-\\d{2}(-\\d{2})?$',
+          },
+          price_type: {
+            type: 'string',
+            enum: ['daily', 'hf'],
+            description:
+              'Filter by price type: daily (monthly aggregates) or hf (high-frequency intraday)',
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximum number of results (default: 100)',
+            default: 100,
+          },
+          offset: {
+            type: 'integer',
+            description: 'Number of results to skip for pagination (default: 0)',
+            default: 0,
           },
         },
       },
