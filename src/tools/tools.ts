@@ -12,7 +12,7 @@ import {
   isIncomeCategory,
   isKnownPlaidCategory,
 } from '../utils/categories.js';
-import type { Transaction, Account, InvestmentPrice } from '../models/index.js';
+import type { Transaction, Account, InvestmentPrice, InvestmentSplit } from '../models/index.js';
 import { getTransactionDisplayName, getRecurringDisplayName } from '../models/index.js';
 import {
   getRootCategories,
@@ -1875,6 +1875,54 @@ export class CopilotMoneyTools {
       prices: paginatedPrices,
     };
   }
+
+  /**
+   * Get stock split history for accurate historical price and share calculations.
+   *
+   * Returns split ratios, dates, and multipliers. Filter by ticker symbol or date range.
+   */
+  async getInvestmentSplits(options: {
+    ticker_symbol?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    count: number;
+    total_count: number;
+    offset: number;
+    has_more: boolean;
+    splits: InvestmentSplit[];
+  }> {
+    const { ticker_symbol } = options;
+
+    // Validate inputs
+    const validatedLimit = validateLimit(options.limit, DEFAULT_QUERY_LIMIT);
+    const validatedOffset = validateOffset(options.offset);
+    const start_date = validateDate(options.start_date, 'start_date');
+    const end_date = validateDate(options.end_date, 'end_date');
+
+    // Query database with filters
+    const splits = await this.db.getInvestmentSplits({
+      tickerSymbol: ticker_symbol,
+      startDate: start_date,
+      endDate: end_date,
+    });
+
+    const totalCount = splits.length;
+    const hasMore = validatedOffset + validatedLimit < totalCount;
+
+    // Apply pagination
+    const paginatedSplits = splits.slice(validatedOffset, validatedOffset + validatedLimit);
+
+    return {
+      count: paginatedSplits.length,
+      total_count: totalCount,
+      offset: validatedOffset,
+      has_more: hasMore,
+      splits: paginatedSplits,
+    };
+  }
 }
 
 /**
@@ -2276,6 +2324,43 @@ export function createToolSchemas(): ToolSchema[] {
             enum: ['daily', 'hf'],
             description:
               'Filter by price type: daily (monthly aggregates) or hf (high-frequency intraday)',
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximum number of results (default: 100)',
+            default: 100,
+          },
+          offset: {
+            type: 'integer',
+            description: 'Number of results to skip for pagination (default: 0)',
+            default: 0,
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    {
+      name: 'get_investment_splits',
+      description:
+        'Get stock split history. Returns split ratios, dates, and multipliers for accurate historical price and share calculations. Filter by ticker symbol or date range.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          ticker_symbol: {
+            type: 'string',
+            description: 'Filter by ticker symbol (e.g., "AAPL", "TSLA")',
+          },
+          start_date: {
+            type: 'string',
+            description: 'Start date (YYYY-MM-DD)',
+            pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          },
+          end_date: {
+            type: 'string',
+            description: 'End date (YYYY-MM-DD)',
+            pattern: '^\\d{4}-\\d{2}-\\d{2}$',
           },
           limit: {
             type: 'integer',

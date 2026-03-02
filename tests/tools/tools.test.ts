@@ -5,7 +5,12 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { CopilotMoneyTools, createToolSchemas } from '../../src/tools/tools.js';
 import { CopilotDatabase } from '../../src/core/database.js';
-import type { Transaction, Account, InvestmentPrice } from '../../src/models/index.js';
+import type {
+  Transaction,
+  Account,
+  InvestmentPrice,
+  InvestmentSplit,
+} from '../../src/models/index.js';
 
 // Mock data
 // Copilot Money format: positive = expenses, negative = income
@@ -235,6 +240,46 @@ const mockInvestmentPrices: InvestmentPrice[] = [
     date: '2024-01-20',
     price_type: 'hf',
     currency: 'USD',
+  },
+];
+
+// Mock investment splits for testing
+const mockInvestmentSplits: InvestmentSplit[] = [
+  {
+    split_id: 'split1',
+    ticker_symbol: 'AAPL',
+    split_date: '2020-08-31',
+    split_ratio: '4:1',
+    to_factor: 4,
+    from_factor: 1,
+    multiplier: 4,
+  },
+  {
+    split_id: 'split2',
+    ticker_symbol: 'TSLA',
+    split_date: '2022-08-25',
+    split_ratio: '3:1',
+    to_factor: 3,
+    from_factor: 1,
+    multiplier: 3,
+  },
+  {
+    split_id: 'split3',
+    ticker_symbol: 'GOOGL',
+    split_date: '2022-07-15',
+    split_ratio: '20:1',
+    to_factor: 20,
+    from_factor: 1,
+    multiplier: 20,
+  },
+  {
+    split_id: 'split4',
+    ticker_symbol: 'AAPL',
+    split_date: '2014-06-09',
+    split_ratio: '7:1',
+    to_factor: 7,
+    from_factor: 1,
+    multiplier: 7,
   },
 ];
 
@@ -1447,12 +1492,92 @@ describe('refreshDatabase', () => {
       expect(result.count).toBe(5);
     });
   });
+
+  describe('getInvestmentSplits', () => {
+    beforeEach(() => {
+      (db as any)._investmentSplits = [...mockInvestmentSplits];
+    });
+
+    test('returns proper structure with all fields', async () => {
+      const result = await tools.getInvestmentSplits({});
+      expect(result.count).toBe(4);
+      expect(result.total_count).toBe(4);
+      expect(result.offset).toBe(0);
+      expect(result.has_more).toBe(false);
+      expect(result.splits).toBeDefined();
+      expect(Array.isArray(result.splits)).toBe(true);
+    });
+
+    test('filters by ticker_symbol', async () => {
+      const result = await tools.getInvestmentSplits({ ticker_symbol: 'AAPL' });
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(2);
+      expect(result.splits.every((s) => s.ticker_symbol === 'AAPL')).toBe(true);
+    });
+
+    test('filters by date range', async () => {
+      const result = await tools.getInvestmentSplits({
+        start_date: '2022-01-01',
+        end_date: '2022-12-31',
+      });
+      // Should include TSLA (2022-08-25) and GOOGL (2022-07-15)
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(2);
+    });
+
+    test('respects limit pagination', async () => {
+      const result = await tools.getInvestmentSplits({ limit: 2 });
+      expect(result.count).toBe(2);
+      expect(result.total_count).toBe(4);
+      expect(result.has_more).toBe(true);
+    });
+
+    test('respects offset pagination', async () => {
+      const result = await tools.getInvestmentSplits({ limit: 2, offset: 3 });
+      expect(result.count).toBe(1);
+      expect(result.total_count).toBe(4);
+      expect(result.offset).toBe(3);
+      expect(result.has_more).toBe(false);
+    });
+
+    test('offset beyond total returns empty', async () => {
+      const result = await tools.getInvestmentSplits({ offset: 100 });
+      expect(result.count).toBe(0);
+      expect(result.total_count).toBe(4);
+      expect(result.has_more).toBe(false);
+    });
+
+    test('returns empty when no splits match', async () => {
+      const result = await tools.getInvestmentSplits({ ticker_symbol: 'NONEXISTENT' });
+      expect(result.count).toBe(0);
+      expect(result.total_count).toBe(0);
+      expect(result.has_more).toBe(false);
+      expect(result.splits).toEqual([]);
+    });
+
+    test('combines ticker and date range filters', async () => {
+      const result = await tools.getInvestmentSplits({
+        ticker_symbol: 'AAPL',
+        start_date: '2020-01-01',
+        end_date: '2020-12-31',
+      });
+      expect(result.count).toBe(1);
+      expect(result.splits[0]!.split_date).toBe('2020-08-31');
+    });
+
+    test('defaults limit to 100 and offset to 0', async () => {
+      const result = await tools.getInvestmentSplits({});
+      expect(result.offset).toBe(0);
+      // With only 4 items, count should be 4 (less than default 100)
+      expect(result.count).toBe(4);
+    });
+  });
 });
 
 describe('createToolSchemas', () => {
-  test('returns 9 tool schemas', async () => {
+  test('returns 10 tool schemas', async () => {
     const schemas = createToolSchemas();
-    expect(schemas).toHaveLength(9);
+    expect(schemas).toHaveLength(10);
   });
 
   test('all tools have readOnlyHint: true', async () => {
@@ -1489,8 +1614,9 @@ describe('createToolSchemas', () => {
     expect(names).toContain('get_budgets');
     expect(names).toContain('get_goals');
     expect(names).toContain('get_investment_prices');
+    expect(names).toContain('get_investment_splits');
 
-    // Should have exactly 9 tools
-    expect(names.length).toBe(9);
+    // Should have exactly 10 tools
+    expect(names.length).toBe(10);
   });
 });
