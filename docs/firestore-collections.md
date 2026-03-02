@@ -263,6 +263,138 @@ Stock split information for accurate historical calculations.
 
 ---
 
+### `balance_history`
+
+**Path:** `items/{item_id}/accounts/{account_id}/balance_history/{date}`
+
+Daily balance snapshots for each account. Document ID is the date in `YYYY-MM-DD` format.
+
+**Note:** This collection is under `items/` (not `users/`), nested inside the Plaid item and account hierarchy.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `_origin` | string | Always `"firebase"` |
+| `current_balance` | double \| integer | Account balance as of that date |
+| `available_balance` | double \| integer | Available balance (may differ from current for credit/checking). Optional field -- not present on all accounts. |
+| `limit` | integer \| null | Credit limit (for credit accounts), null for non-credit accounts |
+
+**Collection Path Pattern:**
+```
+items/{item_id}/accounts/{account_id}/balance_history/{YYYY-MM-DD}
+```
+
+**Example document (`2026-02-19`):**
+```json
+{
+  "_origin": "firebase",
+  "current_balance": 1675.63,
+  "limit": 30000
+}
+```
+
+**Example with available_balance (investment/checking account):**
+```json
+{
+  "_origin": "firebase",
+  "available_balance": 1.04,
+  "current_balance": 3991.30,
+  "limit": null
+}
+```
+
+**Important Notes:**
+- Document IDs are dates (YYYY-MM-DD), one entry per day per account
+- `item_id` and `account_id` must be extracted from the collection path
+- Account ID in the path corresponds to account IDs used in the `accounts` collection
+- Item ID in the path corresponds to item IDs in the `items` collection
+- Not all dates have entries; only dates when the balance was synced
+- Local cache typically contains ~1-2 weeks of balance history (61 docs across 12 accounts in typical usage)
+- Credit card accounts have `limit` set to the credit limit; other accounts have `limit: null`
+- `available_balance` is present on some accounts (investment, checking) but not all (credit cards)
+
+---
+
+### `holdings_history`
+
+**Path:** `items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{month}`
+
+Historical holdings data for investment accounts, tracking daily price and quantity for each security. This is a deeply nested subcollection structure.
+
+**Note:** This collection uses a different pattern than other collections. The `{security_hash}` segment is a SHA-256 hash identifying the security (matching the hash used in `investment_prices`). The actual data lives in the `history` sub-subcollection underneath each security hash.
+
+#### Structure Overview
+
+```
+items/{item_id}/
+  accounts/{account_id}/
+    holdings_history/{security_hash}/        <-- Container (always empty, no fields)
+      history/{YYYY-MM}                      <-- Actual data (monthly documents)
+```
+
+#### Container Documents (`holdings_history/{security_hash}`)
+
+These are empty placeholder documents that serve as anchors for the `history` subcollection. Document ID is always `"history"` and they contain no fields.
+
+- Total: ~8000+ documents (all empty)
+- These should be skipped during processing
+
+#### History Documents (`holdings_history/{security_hash}/history/{month}`)
+
+Monthly snapshots containing daily holdings data. Document ID is the month in `YYYY-MM` format.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Month identifier (`YYYY-MM`), same as document ID |
+| `history` | map | Daily snapshots keyed by millisecond timestamp |
+
+**`history` map structure:**
+
+Keys are millisecond timestamps (e.g., `1756440000000`). Values are:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `price` | integer \| double | Price per unit/share on that date |
+| `quantity` | integer \| double | Number of units/shares held on that date |
+
+**Collection Path Pattern:**
+```
+items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{YYYY-MM}
+```
+
+**Example document (`2025-08`):**
+```json
+{
+  "id": "2025-08",
+  "history": {
+    "1756440000000": {
+      "price": 1,
+      "quantity": 10.6
+    },
+    "1756526400000": {
+      "price": 1,
+      "quantity": 10.62
+    },
+    "1756612800000": {
+      "price": 1,
+      "quantity": 10.62
+    }
+  }
+}
+```
+
+**Important Notes:**
+- The `{security_hash}` in the path matches the same hash used in `investment_prices/{hash}`, allowing cross-referencing to get ticker symbols and detailed price data
+- Timestamps in the `history` map are milliseconds since epoch (UTC)
+- `price` can be `1` for cash-equivalent holdings (money market funds, CDs) or actual stock prices
+- `quantity` can be `0` for securities that were sold/no longer held
+- A single security held across multiple accounts will have separate `holdings_history` entries per account
+- Monthly document IDs use `YYYY-MM` format (not daily like `balance_history`)
+- The container documents at `holdings_history/{hash}` are always empty and should be filtered out
+- Local cache typically contains ~131 history subcollection documents across 27 paths
+- To compute total holdings value for a date: `sum(price * quantity)` across all securities in an account
+
+---
+
 ## Data Quirks and Gotchas
 
 ### 1. Collection Path Matching
@@ -311,11 +443,29 @@ Transactions can be excluded via:
 - Category-based exclusion rules
 - User deletion
 
+### 7. Items-based Collection Paths
+
+Some collections are nested under `items/` instead of `users/`:
+- `items/{item_id}/accounts/{account_id}/balance_history/{date}` - Balance snapshots
+- `items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{month}` - Holdings snapshots
+- `items/{item_id}/accounts/{account_id}/transactions/{txn_id}` - Per-account transactions (separate from main `users/.../transactions`)
+
+These use `item_id` (Plaid connection) and `account_id` from within that connection, which correspond to the same IDs in the `items` and `accounts` collections respectively. When matching by collection name, use `includes()` rather than `endsWith()` for deeply nested paths like `holdings_history`.
+
+### 8. Holdings History Empty Containers
+
+The `holdings_history/{security_hash}` documents are always empty (no fields). They serve as Firestore container documents anchoring the `history` subcollection underneath. When iterating, these 8000+ empty documents should be filtered out. The actual data is in the `history/{YYYY-MM}` sub-subcollection.
+
+### 9. Security Hashes Cross-Reference
+
+The `{security_hash}` used in `holdings_history` paths is the same SHA-256 hash used in `investment_prices/{hash}`. This allows cross-referencing to get ticker symbols and detailed price data for each security in a holdings portfolio.
+
 ---
 
 ## Version History
 
 | Date | Changes |
 |------|---------|
+| 2026-03-02 | Added `balance_history` and `holdings_history` collection schemas discovered via LevelDB iteration. Added quirks #7-9 for items-based paths, empty containers, and security hash cross-references. |
 | 2026-01-18 | Updated `recurring` collection with complete field list: `state`, `emoji`, `latest_date`, `match_string`, `min_amount`/`max_amount`, `transaction_ids`, `plaid_category_id`, etc. Added UI grouping logic notes. |
 | 2026-01-18 | Initial documentation. Added goal history parsing fixes. |
