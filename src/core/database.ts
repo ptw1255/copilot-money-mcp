@@ -21,6 +21,8 @@ import {
   decodeCategories,
   decodeUserAccounts,
   decodeAllCollections,
+  decodeBalanceHistory,
+  decodeHoldingHistory,
   UserAccountCustomization,
   AllCollectionsResult,
 } from './decoder.js';
@@ -37,6 +39,7 @@ import {
   Item,
   getTransactionDisplayName,
 } from '../models/index.js';
+import type { BalanceHistory, HoldingHistory } from '../models/index.js';
 import { getCategoryName } from '../utils/categories.js';
 
 /**
@@ -155,6 +158,8 @@ export class CopilotDatabase {
   private _categoryNameMap: Map<string, string> | null = null;
   private _userAccounts: UserAccountCustomization[] | null = null;
   private _accountNameMap: Map<string, string> | null = null;
+  private _balanceHistory: BalanceHistory[] | null = null;
+  private _holdingHistory: HoldingHistory[] | null = null;
 
   // Promises for in-flight loads to prevent duplicate loading
   private _loadingTransactions: Promise<Transaction[]> | null = null;
@@ -168,6 +173,8 @@ export class CopilotDatabase {
   private _loadingItems: Promise<Item[]> | null = null;
   private _loadingUserCategories: Promise<Category[]> | null = null;
   private _loadingUserAccounts: Promise<UserAccountCustomization[]> | null = null;
+  private _loadingBalanceHistory: Promise<BalanceHistory[]> | null = null;
+  private _loadingHoldingHistory: Promise<HoldingHistory[]> | null = null;
 
   // Batch loading state
   private _loadingAllCollections: Promise<AllCollectionsResult> | null = null;
@@ -264,6 +271,8 @@ export class CopilotDatabase {
     this._categoryNameMap = null;
     this._userAccounts = null;
     this._accountNameMap = null;
+    this._balanceHistory = null;
+    this._holdingHistory = null;
 
     // Clear in-flight loading promises
     this._loadingTransactions = null;
@@ -277,6 +286,8 @@ export class CopilotDatabase {
     this._loadingItems = null;
     this._loadingUserCategories = null;
     this._loadingUserAccounts = null;
+    this._loadingBalanceHistory = null;
+    this._loadingHoldingHistory = null;
     this._loadingAllCollections = null;
 
     // Reset batch loading state
@@ -346,6 +357,8 @@ export class CopilotDatabase {
       this._items = result.items;
       this._userCategories = result.categories;
       this._userAccounts = result.userAccounts;
+      this._balanceHistory = result.balanceHistory;
+      this._holdingHistory = result.holdingHistory;
 
       this._allCollectionsLoaded = true;
       this._cacheLoadedAt = Date.now();
@@ -651,6 +664,60 @@ export class CopilotDatabase {
       return this._userAccounts;
     } finally {
       this._loadingUserAccounts = null;
+    }
+  }
+
+  /**
+   * Load balance history with caching.
+   * Uses batch loading for optimal performance on first access.
+   */
+  private async loadBalanceHistory(): Promise<BalanceHistory[]> {
+    if (this._balanceHistory !== null) {
+      return this._balanceHistory;
+    }
+
+    if (!this._allCollectionsLoaded) {
+      await this.loadAllCollections();
+      return this._balanceHistory ?? [];
+    }
+
+    if (this._loadingBalanceHistory !== null) {
+      return this._loadingBalanceHistory;
+    }
+
+    this._loadingBalanceHistory = decodeBalanceHistory(this.requireDbPath());
+    try {
+      this._balanceHistory = await this._loadingBalanceHistory;
+      return this._balanceHistory;
+    } finally {
+      this._loadingBalanceHistory = null;
+    }
+  }
+
+  /**
+   * Load holding history with caching.
+   * Uses batch loading for optimal performance on first access.
+   */
+  private async loadHoldingHistory(): Promise<HoldingHistory[]> {
+    if (this._holdingHistory !== null) {
+      return this._holdingHistory;
+    }
+
+    if (!this._allCollectionsLoaded) {
+      await this.loadAllCollections();
+      return this._holdingHistory ?? [];
+    }
+
+    if (this._loadingHoldingHistory !== null) {
+      return this._loadingHoldingHistory;
+    }
+
+    this._loadingHoldingHistory = decodeHoldingHistory(this.requireDbPath());
+    try {
+      this._holdingHistory = await this._loadingHoldingHistory;
+      return this._holdingHistory;
+    } finally {
+      this._loadingHoldingHistory = null;
     }
   }
 
@@ -1197,6 +1264,99 @@ export class CopilotDatabase {
     // Apply needs update filter
     if (needsUpdate !== undefined) {
       result = result.filter((item) => item.needs_update === needsUpdate);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get balance history from the database.
+   *
+   * Balance history is stored in:
+   * /items/{item_id}/accounts/{account_id}/balance_history/{YYYY-MM-DD}
+   *
+   * Each document captures the account balance on a specific date.
+   *
+   * @param options - Filter options
+   * @param options.accountId - Filter by account ID
+   * @param options.startDate - Filter by date >= this (YYYY-MM-DD)
+   * @param options.endDate - Filter by date <= this (YYYY-MM-DD)
+   * @returns Array of BalanceHistory objects, sorted by account_id and date (newest first)
+   */
+  async getBalanceHistory(
+    options: {
+      accountId?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ): Promise<BalanceHistory[]> {
+    const { accountId, startDate, endDate } = options;
+
+    const allHistory = await this.loadBalanceHistory();
+    let result = [...allHistory];
+
+    // Apply account ID filter
+    if (accountId) {
+      result = result.filter((bh) => bh.account_id === accountId);
+    }
+
+    // Apply date range filters
+    if (startDate) {
+      result = result.filter((bh) => bh.date >= startDate);
+    }
+    if (endDate) {
+      result = result.filter((bh) => bh.date <= endDate);
+    }
+
+    return result;
+  }
+
+  /**
+   * Get holding history from the database.
+   *
+   * Holding history is stored in:
+   * /items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{YYYY-MM}
+   *
+   * Each document contains daily snapshots of price and quantity for a holding.
+   *
+   * @param options - Filter options
+   * @param options.securityId - Filter by security hash (cross-references investment_prices)
+   * @param options.accountId - Filter by account ID
+   * @param options.startDate - Filter by month >= this (YYYY-MM or YYYY-MM-DD, uses first 7 chars)
+   * @param options.endDate - Filter by month <= this (YYYY-MM or YYYY-MM-DD, uses first 7 chars)
+   * @returns Array of HoldingHistory objects, sorted by security_id and month (newest first)
+   */
+  async getHoldingHistory(
+    options: {
+      securityId?: string;
+      accountId?: string;
+      startDate?: string;
+      endDate?: string;
+    } = {}
+  ): Promise<HoldingHistory[]> {
+    const { securityId, accountId, startDate, endDate } = options;
+
+    const allHistory = await this.loadHoldingHistory();
+    let result = [...allHistory];
+
+    // Apply security ID filter
+    if (securityId) {
+      result = result.filter((hh) => hh.security_id === securityId);
+    }
+
+    // Apply account ID filter
+    if (accountId) {
+      result = result.filter((hh) => hh.account_id === accountId);
+    }
+
+    // Apply date range filters (compare on month level)
+    if (startDate) {
+      const startMonth = startDate.substring(0, 7);
+      result = result.filter((hh) => hh.month >= startMonth);
+    }
+    if (endDate) {
+      const endMonth = endDate.substring(0, 7);
+      result = result.filter((hh) => hh.month <= endMonth);
     }
 
     return result;

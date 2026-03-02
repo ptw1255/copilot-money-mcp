@@ -71,6 +71,14 @@
     {
       "name": "get_connections",
       "description": "Get Plaid connection health for linked financial institutions. Shows connection status, last sync times, error codes, and whether re-authentication is needed."
+    },
+    {
+      "name": "get_balance_history",
+      "description": "Get daily balance history for accounts. Returns historical balance snapshots showing how account balances changed over time."
+    },
+    {
+      "name": "get_holdings_history",
+      "description": "Get investment holdings history with daily price and quantity snapshots. Returns monthly documents with daily snapshots showing how positions changed over time."
     }
   ],
   "tools_generated": false,

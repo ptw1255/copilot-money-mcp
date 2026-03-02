@@ -157,6 +157,18 @@ export class CopilotMoneyServer {
           );
           break;
 
+        case 'get_balance_history':
+          result = await this.tools.getBalanceHistory(
+            (typedArgs as Parameters<typeof this.tools.getBalanceHistory>[0]) || {}
+          );
+          break;
+
+        case 'get_holdings_history':
+          result = await this.tools.getHoldingsHistory(
+            (typedArgs as Parameters<typeof this.tools.getHoldingsHistory>[0]) || {}
+          );
+          break;
+
         default:
           return {
             content: [

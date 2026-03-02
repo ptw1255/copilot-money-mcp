@@ -1668,9 +1668,9 @@ describe('refreshDatabase', () => {
 });
 
 describe('createToolSchemas', () => {
-  test('returns 11 tool schemas', async () => {
+  test('returns 13 tool schemas', async () => {
     const schemas = createToolSchemas();
-    expect(schemas).toHaveLength(11);
+    expect(schemas).toHaveLength(13);
   });
 
   test('all tools have readOnlyHint: true', async () => {
@@ -1709,8 +1709,10 @@ describe('createToolSchemas', () => {
     expect(names).toContain('get_investment_prices');
     expect(names).toContain('get_investment_splits');
     expect(names).toContain('get_connections');
+    expect(names).toContain('get_balance_history');
+    expect(names).toContain('get_holdings_history');
 
-    // Should have exactly 11 tools
-    expect(names.length).toBe(11);
+    // Should have exactly 13 tools
+    expect(names.length).toBe(13);
   });
 });

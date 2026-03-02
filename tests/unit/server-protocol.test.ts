@@ -149,7 +149,7 @@ describe('CopilotMoneyServer.handleListTools', () => {
     }
   });
 
-  test('returns all 11 tools', () => {
+  test('returns all 13 tools', () => {
     const response = server.handleListTools();
 
     const expectedTools = [
@@ -164,13 +164,15 @@ describe('CopilotMoneyServer.handleListTools', () => {
       'get_investment_prices',
       'get_investment_splits',
       'get_connections',
+      'get_balance_history',
+      'get_holdings_history',
     ];
 
     const actualNames = response.tools.map((t) => t.name);
     for (const expected of expectedTools) {
       expect(actualNames).toContain(expected);
     }
-    expect(response.tools.length).toBe(11);
+    expect(response.tools.length).toBe(13);
   });
 
   test('tool schemas have valid JSON schema format', () => {

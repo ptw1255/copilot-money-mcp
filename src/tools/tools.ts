@@ -18,6 +18,8 @@ import type {
   InvestmentPrice,
   InvestmentSplit,
   Item,
+  BalanceHistory,
+  HoldingHistory,
 } from '../models/index.js';
 import { getTransactionDisplayName, getRecurringDisplayName } from '../models/index.js';
 import {
@@ -1959,6 +1961,107 @@ export class CopilotMoneyTools {
       connections,
     };
   }
+
+  /**
+   * Get daily balance history for accounts.
+   *
+   * Returns historical balance snapshots stored per account per day.
+   * Filter by account, date range. Supports pagination.
+   */
+  async getBalanceHistory(options: {
+    account_id?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    count: number;
+    total_count: number;
+    offset: number;
+    has_more: boolean;
+    history: BalanceHistory[];
+  }> {
+    const { account_id } = options;
+
+    // Validate inputs
+    const validatedLimit = validateLimit(options.limit, DEFAULT_QUERY_LIMIT);
+    const validatedOffset = validateOffset(options.offset);
+    const start_date = validateDate(options.start_date, 'start_date');
+    const end_date = validateDate(options.end_date, 'end_date');
+
+    // Query database with filters
+    const history = await this.db.getBalanceHistory({
+      accountId: account_id,
+      startDate: start_date,
+      endDate: end_date,
+    });
+
+    const totalCount = history.length;
+    const hasMore = validatedOffset + validatedLimit < totalCount;
+
+    // Apply pagination
+    const paginatedHistory = history.slice(validatedOffset, validatedOffset + validatedLimit);
+
+    return {
+      count: paginatedHistory.length,
+      total_count: totalCount,
+      offset: validatedOffset,
+      has_more: hasMore,
+      history: paginatedHistory,
+    };
+  }
+
+  /**
+   * Get holdings history with daily price and quantity snapshots.
+   *
+   * Returns monthly documents with daily snapshots of investment positions.
+   * Filter by security hash, account, date range. Supports pagination.
+   * Cross-reference security_id with investment_prices for ticker symbols.
+   */
+  async getHoldingsHistory(options: {
+    security_id?: string;
+    account_id?: string;
+    start_date?: string;
+    end_date?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{
+    count: number;
+    total_count: number;
+    offset: number;
+    has_more: boolean;
+    holdings: HoldingHistory[];
+  }> {
+    const { security_id, account_id } = options;
+
+    // Validate inputs
+    const validatedLimit = validateLimit(options.limit, DEFAULT_QUERY_LIMIT);
+    const validatedOffset = validateOffset(options.offset);
+    const start_date = validateDateOrMonth(options.start_date, 'start_date');
+    const end_date = validateDateOrMonth(options.end_date, 'end_date');
+
+    // Query database with filters
+    const holdings = await this.db.getHoldingHistory({
+      securityId: security_id,
+      accountId: account_id,
+      startDate: start_date,
+      endDate: end_date,
+    });
+
+    const totalCount = holdings.length;
+    const hasMore = validatedOffset + validatedLimit < totalCount;
+
+    // Apply pagination
+    const paginatedHoldings = holdings.slice(validatedOffset, validatedOffset + validatedLimit);
+
+    return {
+      count: paginatedHoldings.length,
+      total_count: totalCount,
+      offset: validatedOffset,
+      has_more: hasMore,
+      holdings: paginatedHoldings,
+    };
+  }
 }
 
 /**
@@ -2432,6 +2535,85 @@ export function createToolSchemas(): ToolSchema[] {
           needs_update: {
             type: 'boolean',
             description: 'Filter by whether connection needs re-authentication',
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    {
+      name: 'get_balance_history',
+      description:
+        'Get daily balance history for accounts. Returns historical balance snapshots showing how account balances changed over time. Filter by account ID and date range. Each entry includes current_balance, optional available_balance, and credit limit. Useful for tracking balance trends and analyzing spending patterns over time.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          account_id: {
+            type: 'string',
+            description: 'Filter by account ID',
+          },
+          start_date: {
+            type: 'string',
+            description: 'Start date (YYYY-MM-DD)',
+            pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          },
+          end_date: {
+            type: 'string',
+            description: 'End date (YYYY-MM-DD)',
+            pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximum number of results (default: 100)',
+            default: 100,
+          },
+          offset: {
+            type: 'integer',
+            description: 'Number of results to skip for pagination (default: 0)',
+            default: 0,
+          },
+        },
+      },
+      annotations: {
+        readOnlyHint: true,
+      },
+    },
+    {
+      name: 'get_holdings_history',
+      description:
+        'Get investment holdings history with daily price and quantity snapshots. Returns monthly documents with daily snapshots showing how positions changed over time. Filter by security hash (cross-references investment_prices for ticker symbols), account ID, and date range. Each entry includes snapshots with price and quantity keyed by date.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          security_id: {
+            type: 'string',
+            description:
+              'Filter by security hash (cross-references investment_prices for ticker symbol)',
+          },
+          account_id: {
+            type: 'string',
+            description: 'Filter by account ID',
+          },
+          start_date: {
+            type: 'string',
+            description: 'Start date (YYYY-MM-DD or YYYY-MM)',
+            pattern: '^\\d{4}-\\d{2}(-\\d{2})?$',
+          },
+          end_date: {
+            type: 'string',
+            description: 'End date (YYYY-MM-DD or YYYY-MM)',
+            pattern: '^\\d{4}-\\d{2}(-\\d{2})?$',
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximum number of results (default: 100)',
+            default: 100,
+          },
+          offset: {
+            type: 'integer',
+            description: 'Number of results to skip for pagination (default: 0)',
+            default: 0,
           },
         },
       },
