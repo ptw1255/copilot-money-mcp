@@ -93,6 +93,15 @@ export {
   isConsentExpiringSoon,
 } from './item.js';
 
+export { BalanceHistorySchema, type BalanceHistory } from './balance-history.js';
+
+export {
+  HoldingHistorySchema,
+  type HoldingHistory,
+  HoldingSnapshotSchema,
+  type HoldingSnapshot,
+} from './holding-history.js';
+
 export {
   type CategoryNode,
   getCategory,

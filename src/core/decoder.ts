@@ -24,6 +24,8 @@ import { InvestmentPrice, InvestmentPriceSchema } from '../models/investment-pri
 import { InvestmentSplit, InvestmentSplitSchema } from '../models/investment-split.js';
 import { Item, ItemSchema } from '../models/item.js';
 import { Category, CategorySchema } from '../models/category.js';
+import { BalanceHistory, BalanceHistorySchema } from '../models/balance-history.js';
+import { HoldingHistory, HoldingHistorySchema } from '../models/holding-history.js';
 
 /**
  * Extract a primitive value from a FirestoreValue.
@@ -628,6 +630,8 @@ export interface AllCollectionsResult {
   items: Item[];
   categories: Category[];
   userAccounts: UserAccountCustomization[];
+  balanceHistory: BalanceHistory[];
+  holdingHistory: HoldingHistory[];
 }
 
 /**
@@ -1228,6 +1232,158 @@ function processUserAccount(
 }
 
 /**
+ * Internal helper to process a balance history document.
+ *
+ * Path: items/{item_id}/accounts/{account_id}/balance_history/{YYYY-MM-DD}
+ * Fields: _origin, current_balance, available_balance, limit
+ */
+function processBalanceHistory(
+  fields: Map<string, FirestoreValue>,
+  docId: string,
+  collection: string
+): BalanceHistory | null {
+  // Document ID is the date
+  const date = docId;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return null;
+  }
+
+  // Extract account_id and item_id from collection path
+  // Path format: items/{item_id}/accounts/{account_id}/balance_history
+  const parts = collection.split('/');
+  let accountId: string | undefined;
+  let itemId: string | undefined;
+
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === 'accounts' && i + 1 < parts.length) {
+      accountId = parts[i + 1];
+    }
+    if (parts[i] === 'items' && i + 1 < parts.length) {
+      itemId = parts[i + 1];
+    }
+  }
+
+  if (!accountId) {
+    return null;
+  }
+
+  const currentBalance = getNumber(fields, 'current_balance');
+  if (currentBalance === undefined) {
+    return null;
+  }
+
+  const data: Record<string, unknown> = {
+    account_id: accountId,
+    date,
+    current_balance: currentBalance,
+  };
+
+  if (itemId) data.item_id = itemId;
+
+  const availableBalance = getNumber(fields, 'available_balance');
+  if (availableBalance !== undefined) data.available_balance = availableBalance;
+
+  const limit = getNumber(fields, 'limit');
+  if (limit !== undefined) {
+    data.limit = limit;
+  } else {
+    // Check for explicit null
+    const limitValue = fields.get('limit');
+    if (limitValue?.type === 'null') {
+      data.limit = null;
+    }
+  }
+
+  const validated = BalanceHistorySchema.safeParse(data);
+  return validated.success ? validated.data : null;
+}
+
+/**
+ * Internal helper to process a holding history document.
+ *
+ * Path: items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{YYYY-MM}
+ * Fields: id, history (map of ms timestamps -> {price, quantity})
+ *
+ * IMPORTANT: Skip empty container documents at holdings_history/{hash} level.
+ */
+function processHoldingHistory(
+  fields: Map<string, FirestoreValue>,
+  docId: string,
+  collection: string
+): HoldingHistory | null {
+  // Skip empty container documents (0 fields)
+  if (fields.size === 0) {
+    return null;
+  }
+
+  // Extract identifiers from collection path
+  // Path format: items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history
+  const parts = collection.split('/');
+  let accountId: string | undefined;
+  let itemId: string | undefined;
+  let securityId: string | undefined;
+
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] === 'accounts' && i + 1 < parts.length) {
+      accountId = parts[i + 1];
+    }
+    if (parts[i] === 'items' && i + 1 < parts.length) {
+      itemId = parts[i + 1];
+    }
+    if (parts[i] === 'holdings_history' && i + 1 < parts.length) {
+      securityId = parts[i + 1];
+    }
+  }
+
+  if (!securityId) {
+    return null;
+  }
+
+  // Get month from docId or 'id' field
+  const month = docId || getString(fields, 'id');
+  if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+    return null;
+  }
+
+  const data: Record<string, unknown> = {
+    security_id: securityId,
+    month,
+  };
+
+  if (accountId) data.account_id = accountId;
+  if (itemId) data.item_id = itemId;
+
+  // Convert history map (ms timestamps -> {price, quantity}) to snapshots with ISO date keys
+  const historyMap = getMap(fields, 'history');
+  if (historyMap && historyMap.size > 0) {
+    const snapshots: Record<string, { price: number; quantity: number }> = {};
+
+    for (const [tsKey, value] of historyMap) {
+      if (value.type === 'map') {
+        const price = getNumber(value.value, 'price');
+        const quantity = getNumber(value.value, 'quantity');
+
+        if (price !== undefined && quantity !== undefined) {
+          // Convert millisecond timestamp key to ISO date string
+          const tsNum = parseInt(tsKey, 10);
+          if (!isNaN(tsNum)) {
+            const isoDate = new Date(tsNum).toISOString().split('T')[0] ?? '';
+            snapshots[isoDate] = { price, quantity };
+          }
+        }
+      }
+    }
+
+    if (Object.keys(snapshots).length > 0) {
+      data.snapshots = snapshots;
+    }
+  }
+
+  const validated = HoldingHistorySchema.safeParse(data);
+  return validated.success ? validated.data : null;
+}
+
+/**
  * Batch decode all collections from LevelDB database in a single pass.
  *
  * This is significantly faster than calling individual decode functions
@@ -1256,6 +1412,8 @@ export async function decodeAllCollections(dbPath: string): Promise<AllCollectio
   const rawItems: Item[] = [];
   const rawCategories: Category[] = [];
   const rawUserAccounts: UserAccountCustomization[] = [];
+  const rawBalanceHistory: BalanceHistory[] = [];
+  const rawHoldingHistory: HoldingHistory[] = [];
 
   // Single pass through the database
   for await (const doc of iterateDocuments(dbPath)) {
@@ -1293,6 +1451,12 @@ export async function decodeAllCollections(dbPath: string): Promise<AllCollectio
     } else if (collectionMatches(collection, 'investment_splits')) {
       const split = processInvestmentSplit(fields, documentId);
       if (split) rawInvestmentSplits.push(split);
+    } else if (collection.includes('/balance_history')) {
+      const bh = processBalanceHistory(fields, documentId, collection);
+      if (bh) rawBalanceHistory.push(bh);
+    } else if (collection.includes('/holdings_history/') && collection.includes('/history')) {
+      const hh = processHoldingHistory(fields, documentId, collection);
+      if (hh) rawHoldingHistory.push(hh);
     } else if (collectionMatches(collection, 'items')) {
       const item = processItem(fields, documentId);
       if (item) rawItems.push(item);
@@ -1463,6 +1627,40 @@ export async function decodeAllCollections(dbPath: string): Promise<AllCollectio
     }
   }
 
+  // Balance history: dedupe by account_id|date, sort by date desc
+  const bhSeen = new Set<string>();
+  const balanceHistory: BalanceHistory[] = [];
+  for (const bh of rawBalanceHistory) {
+    const key = `${bh.account_id}|${bh.date}`;
+    if (!bhSeen.has(key)) {
+      bhSeen.add(key);
+      balanceHistory.push(bh);
+    }
+  }
+  balanceHistory.sort((a, b) => {
+    if (a.account_id !== b.account_id) {
+      return a.account_id.localeCompare(b.account_id);
+    }
+    return b.date.localeCompare(a.date);
+  });
+
+  // Holding history: dedupe by security_id|month, sort by month desc
+  const hhSeen = new Set<string>();
+  const holdingHistory: HoldingHistory[] = [];
+  for (const hh of rawHoldingHistory) {
+    const key = `${hh.security_id}|${hh.month}`;
+    if (!hhSeen.has(key)) {
+      hhSeen.add(key);
+      holdingHistory.push(hh);
+    }
+  }
+  holdingHistory.sort((a, b) => {
+    if (a.security_id !== b.security_id) {
+      return a.security_id.localeCompare(b.security_id);
+    }
+    return b.month.localeCompare(a.month);
+  });
+
   return {
     transactions,
     accounts,
@@ -1475,5 +1673,85 @@ export async function decodeAllCollections(dbPath: string): Promise<AllCollectio
     items,
     categories,
     userAccounts,
+    balanceHistory,
+    holdingHistory,
   };
+}
+
+/**
+ * Decode balance history from LevelDB database.
+ *
+ * Path: items/{item_id}/accounts/{account_id}/balance_history/{YYYY-MM-DD}
+ */
+export async function decodeBalanceHistory(dbPath: string): Promise<BalanceHistory[]> {
+  const histories: BalanceHistory[] = [];
+
+  for await (const doc of iterateDocuments(dbPath)) {
+    if (!doc.collection.includes('/balance_history')) continue;
+
+    const bh = processBalanceHistory(doc.fields, doc.documentId, doc.collection);
+    if (bh) histories.push(bh);
+  }
+
+  // Deduplicate by account_id|date
+  const seen = new Set<string>();
+  const unique: BalanceHistory[] = [];
+
+  for (const bh of histories) {
+    const key = `${bh.account_id}|${bh.date}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(bh);
+    }
+  }
+
+  // Sort by account_id, then by date desc
+  unique.sort((a, b) => {
+    if (a.account_id !== b.account_id) {
+      return a.account_id.localeCompare(b.account_id);
+    }
+    return b.date.localeCompare(a.date);
+  });
+
+  return unique;
+}
+
+/**
+ * Decode holding history from LevelDB database.
+ *
+ * Path: items/{item_id}/accounts/{account_id}/holdings_history/{security_hash}/history/{YYYY-MM}
+ */
+export async function decodeHoldingHistory(dbPath: string): Promise<HoldingHistory[]> {
+  const histories: HoldingHistory[] = [];
+
+  for await (const doc of iterateDocuments(dbPath)) {
+    if (!doc.collection.includes('/holdings_history/') || !doc.collection.includes('/history')) {
+      continue;
+    }
+
+    const hh = processHoldingHistory(doc.fields, doc.documentId, doc.collection);
+    if (hh) histories.push(hh);
+  }
+
+  // Deduplicate by security_id|month
+  const seen = new Set<string>();
+  const unique: HoldingHistory[] = [];
+
+  for (const hh of histories) {
+    const key = `${hh.security_id}|${hh.month}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      unique.push(hh);
+    }
+  }
+
+  // Sort by security_id, then by month desc
+  unique.sort((a, b) => {
+    if (a.security_id !== b.security_id) {
+      return a.security_id.localeCompare(b.security_id);
+    }
+    return b.month.localeCompare(a.month);
+  });
+
+  return unique;
 }
