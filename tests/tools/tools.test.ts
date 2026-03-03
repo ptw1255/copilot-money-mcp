@@ -571,6 +571,36 @@ describe('CopilotMoneyTools', () => {
       expect(result.type_specific_data?.tags).toBeDefined();
       expect(Array.isArray(result.type_specific_data?.tags)).toBe(true);
     });
+
+    test('returns summary when include_summary is true', async () => {
+      // mockTransactions: txn1=50 (expense), txn2=120.5 (expense), txn3=25 (expense), txn4=-1000 (income)
+      const result = await tools.getTransactions({ include_summary: true });
+
+      expect(result.summary).toBeDefined();
+      expect(result.summary!.total_income).toBe(1000);
+      expect(result.summary!.total_expenses).toBe(195.5); // 50 + 120.5 + 25
+      expect(result.summary!.net).toBe(804.5); // 1000 - 195.5
+      expect(result.summary!.savings_rate).toBe(80.45); // (804.5 / 1000) * 100
+      expect(result.summary!.transaction_count).toBe(4);
+    });
+
+    test('does NOT return summary by default', async () => {
+      const result = await tools.getTransactions({});
+
+      expect(result.summary).toBeUndefined();
+    });
+
+    test('summary covers all transactions, not just paged subset', async () => {
+      // Set limit=1 but summary should reflect ALL 4 transactions
+      const result = await tools.getTransactions({ include_summary: true, limit: 1 });
+
+      expect(result.count).toBe(1); // Only 1 returned in the page
+      expect(result.total_count).toBe(4); // All 4 match
+      expect(result.summary).toBeDefined();
+      expect(result.summary!.transaction_count).toBe(4); // Summary across all 4
+      expect(result.summary!.total_income).toBe(1000);
+      expect(result.summary!.total_expenses).toBe(195.5);
+    });
   });
 
   describe('getAccounts', () => {

@@ -388,6 +388,8 @@ export class CopilotMoneyTools {
     lat?: number;
     lon?: number;
     radius_km?: number;
+    // NEW: Summary flag
+    include_summary?: boolean;
   }): Promise<{
     count: number;
     total_count: number;
@@ -398,6 +400,14 @@ export class CopilotMoneyTools {
     type_specific_data?: Record<string, unknown>;
     // Cache limitation warning
     _cache_warning?: string;
+    // Optional summary across ALL matching transactions
+    summary?: {
+      total_income: number;
+      total_expenses: number;
+      net: number;
+      savings_rate: number;
+      transaction_count: number;
+    };
   }> {
     const {
       period,
@@ -420,6 +430,7 @@ export class CopilotMoneyTools {
       lat,
       lon,
       radius_km = 10,
+      include_summary = false,
     } = options;
 
     // Validate inputs
@@ -573,6 +584,39 @@ export class CopilotMoneyTools {
     const totalCount = transactions.length;
     const hasMore = validatedOffset + validatedLimit < totalCount;
 
+    // Compute summary across ALL filtered transactions (before pagination)
+    let summary:
+      | {
+          total_income: number;
+          total_expenses: number;
+          net: number;
+          savings_rate: number;
+          transaction_count: number;
+        }
+      | undefined;
+
+    if (include_summary) {
+      let totalIncome = 0;
+      let totalExpenses = 0;
+      for (const txn of transactions) {
+        if (txn.amount < 0) {
+          totalIncome += Math.abs(txn.amount); // Negative = income in Copilot convention
+        } else if (txn.amount > 0) {
+          totalExpenses += txn.amount; // Positive = expense in Copilot convention
+        }
+      }
+      const net = totalIncome - totalExpenses;
+      const savingsRate = totalIncome > 0 ? (net / totalIncome) * 100 : 0;
+
+      summary = {
+        total_income: roundAmount(totalIncome),
+        total_expenses: roundAmount(totalExpenses),
+        net: roundAmount(net),
+        savings_rate: roundAmount(savingsRate),
+        transaction_count: totalCount,
+      };
+    }
+
     // Apply pagination
     transactions = transactions.slice(validatedOffset, validatedOffset + validatedLimit);
 
@@ -598,6 +642,7 @@ export class CopilotMoneyTools {
       transactions: enrichedTransactions,
       ...(typeSpecificData && { type_specific_data: typeSpecificData }),
       ...(cacheWarning && { _cache_warning: cacheWarning }),
+      ...(summary && { summary }),
     };
   }
 
@@ -2223,6 +2268,14 @@ export function createToolSchemas(): ToolSchema[] {
             type: 'number',
             description: 'Search radius in kilometers (default: 10)',
             default: 10,
+          },
+          // Summary flag
+          include_summary: {
+            type: 'boolean',
+            description:
+              'Include income/expense/net summary for the queried period (default: false). ' +
+              'Summary is computed across ALL matching transactions, not just the paged subset.',
+            default: false,
           },
         },
       },
