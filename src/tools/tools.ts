@@ -20,6 +20,7 @@ import type {
   Item,
   BalanceHistory,
   HoldingHistory,
+  GoalHistory,
 } from '../models/index.js';
 import { getTransactionDisplayName, getRecurringDisplayName } from '../models/index.js';
 import {
@@ -1799,7 +1800,7 @@ export class CopilotMoneyTools {
    * @param options - Filter options
    * @returns Object with goal details
    */
-  async getGoals(options: { active_only?: boolean } = {}): Promise<{
+  async getGoals(options: { active_only?: boolean; include_history?: boolean } = {}): Promise<{
     count: number;
     total_target: number;
     total_saved: number;
@@ -1816,9 +1817,10 @@ export class CopilotMoneyTools {
       created_date?: string;
       is_ongoing?: boolean;
       inflates_budget?: boolean;
+      history?: GoalHistory[];
     }>;
   }> {
-    const { active_only = false } = options;
+    const { active_only = false, include_history = false } = options;
 
     const goals = await this.db.getGoals(active_only);
 
@@ -1852,6 +1854,17 @@ export class CopilotMoneyTools {
       totalSaved += currentAmount;
     }
 
+    // If include_history, group history by goal_id
+    let historyByGoal: Map<string, GoalHistory[]> | undefined;
+    if (include_history) {
+      historyByGoal = new Map<string, GoalHistory[]>();
+      for (const h of goalHistory) {
+        const list = historyByGoal.get(h.goal_id) ?? [];
+        list.push(h);
+        historyByGoal.set(h.goal_id, list);
+      }
+    }
+
     return {
       count: goals.length,
       total_target: roundAmount(totalTarget),
@@ -1869,6 +1882,7 @@ export class CopilotMoneyTools {
         created_date: g.created_date,
         is_ongoing: g.savings?.is_ongoing,
         inflates_budget: g.savings?.inflates_budget,
+        ...(historyByGoal && { history: historyByGoal.get(g.goal_id) ?? [] }),
       })),
     };
   }
@@ -2482,6 +2496,13 @@ export function createToolSchemas(): ToolSchema[] {
           active_only: {
             type: 'boolean',
             description: 'Only return active goals (default: false)',
+            default: false,
+          },
+          include_history: {
+            type: 'boolean',
+            description:
+              'Include full monthly history (snapshots with current_amount, daily_data, contributions) ' +
+              'for each goal (default: false). Useful for tracking goal progress over time.',
             default: false,
           },
         },

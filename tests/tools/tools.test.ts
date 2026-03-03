@@ -920,6 +920,41 @@ describe('CopilotMoneyTools', () => {
       expect(result.goals.map((g) => g.name)).toContain('Vacation Fund');
       expect(result.goals.map((g) => g.name)).not.toContain('Paused Goal');
     });
+
+    test('returns history array per goal when include_history is true', async () => {
+      (db as any)._goals = [...mockGoals];
+      (db as any)._goalHistory = [...mockGoalHistoryWrongOrder];
+
+      const result = await tools.getGoals({ include_history: true });
+
+      expect(result.count).toBe(2);
+
+      // Goal 1 should have 3 history entries
+      const goal1 = result.goals.find((g) => g.goal_id === 'goal1');
+      expect(goal1?.history).toBeDefined();
+      expect(goal1!.history!.length).toBe(3);
+      // Check that all entries belong to goal1
+      for (const h of goal1!.history!) {
+        expect(h.goal_id).toBe('goal1');
+      }
+
+      // Goal 2 should have 2 history entries
+      const goal2 = result.goals.find((g) => g.goal_id === 'goal2');
+      expect(goal2?.history).toBeDefined();
+      expect(goal2!.history!.length).toBe(2);
+    });
+
+    test('does NOT include history by default', async () => {
+      (db as any)._goals = [...mockGoals];
+      (db as any)._goalHistory = [...mockGoalHistoryWrongOrder];
+
+      const result = await tools.getGoals({});
+
+      // history should not be present on goals
+      for (const goal of result.goals) {
+        expect((goal as any).history).toBeUndefined();
+      }
+    });
   });
 
   describe('getBudgets', () => {
