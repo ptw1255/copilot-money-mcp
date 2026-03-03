@@ -67,7 +67,7 @@ describe('CopilotMoneyTools.getInvestmentPrices', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getInvestmentPrices"`
+Run: `bun test tests/tools/tools.test.ts -t "getInvestmentPrices"`
 Expected: FAIL with "tools.getInvestmentPrices is not a function"
 
 **Step 3: Implement the tool method**
@@ -199,13 +199,12 @@ case 'get_investment_prices':
 
 **Step 6: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getInvestmentPrices"`
+Run: `bun test tests/tools/tools.test.ts -t "getInvestmentPrices"`
 Expected: PASS (note: tests may show 0 prices if mock data doesn't include investment prices — that's ok, the structure test still validates)
 
 **Step 7: Commit**
 
 ```bash
-cd /Users/parker/copilot-money-mcp
 git add src/tools/tools.ts src/server.ts tests/tools/tools.test.ts
 git commit -m "feat: add get_investment_prices MCP tool
 
@@ -252,7 +251,7 @@ describe('CopilotMoneyTools.getInvestmentSplits', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getInvestmentSplits"`
+Run: `bun test tests/tools/tools.test.ts -t "getInvestmentSplits"`
 Expected: FAIL
 
 **Step 3: Implement the tool method**
@@ -352,7 +351,7 @@ case 'get_investment_splits':
 
 **Step 6: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getInvestmentSplits"`
+Run: `bun test tests/tools/tools.test.ts -t "getInvestmentSplits"`
 Expected: PASS
 
 **Step 7: Commit**
@@ -402,7 +401,7 @@ describe('CopilotMoneyTools.getConnections', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getConnections"`
+Run: `bun test tests/tools/tools.test.ts -t "getConnections"`
 Expected: FAIL
 
 **Step 3: Implement the tool method**
@@ -473,7 +472,7 @@ case 'get_connections':
 
 **Step 6: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getConnections"`
+Run: `bun test tests/tools/tools.test.ts -t "getConnections"`
 Expected: PASS
 
 **Step 7: Commit**
@@ -569,7 +568,7 @@ discover(dbPath).catch(console.error);
 
 **Step 2: Run the discovery script**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun run scripts/discover-collections.ts`
+Run: `bun run scripts/discover-collections.ts`
 
 **Step 3: Analyze the output**
 
@@ -631,7 +630,7 @@ export { BalanceHistorySchema, type BalanceHistory } from './balance-history.js'
 
 **Step 3: Run typecheck**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun run check`
+Run: `bun run check`
 Expected: PASS (no type errors)
 
 **Step 4: Commit**
@@ -687,7 +686,7 @@ export { HoldingHistorySchema, type HoldingHistory } from './holding-history.js'
 
 **Step 3: Run typecheck**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun run check`
+Run: `bun run check`
 Expected: PASS
 
 **Step 4: Commit**
@@ -950,7 +949,7 @@ export async function decodeHoldingHistory(dbPath: string): Promise<HoldingHisto
 
 **Step 8: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/core/`
+Run: `bun test tests/core/`
 Expected: PASS (existing tests should still pass, new decode functions exist)
 
 **Step 9: Commit**
@@ -1116,7 +1115,7 @@ async getHoldingHistory(options: {
 
 **Step 7: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/core/database.test.ts`
+Run: `bun test tests/core/database.test.ts`
 Expected: PASS
 
 **Step 8: Commit**
@@ -1164,7 +1163,7 @@ describe('CopilotMoneyTools.getBalanceHistory', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getBalanceHistory"`
+Run: `bun test tests/tools/tools.test.ts -t "getBalanceHistory"`
 Expected: FAIL
 
 **Step 3: Implement the tool method**
@@ -1266,7 +1265,7 @@ case 'get_balance_history':
 
 **Step 6: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getBalanceHistory"`
+Run: `bun test tests/tools/tools.test.ts -t "getBalanceHistory"`
 Expected: PASS
 
 **Step 7: Commit**
@@ -1316,7 +1315,7 @@ describe('CopilotMoneyTools.getHoldings', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getHoldings"`
+Run: `bun test tests/tools/tools.test.ts -t "getHoldings"`
 Expected: FAIL
 
 **Step 3: Implement the tool method**
@@ -1421,7 +1420,7 @@ case 'get_holdings':
 
 **Step 6: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "getHoldings"`
+Run: `bun test tests/tools/tools.test.ts -t "getHoldings"`
 Expected: PASS
 
 **Step 7: Commit**
@@ -1469,7 +1468,7 @@ describe('getTransactions include_summary', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "include_summary"`
+Run: `bun test tests/tools/tools.test.ts -t "include_summary"`
 Expected: FAIL
 
 **Step 3: Update the getTransactions method**
@@ -1537,7 +1536,7 @@ include_summary: {
 
 **Step 5: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "include_summary"`
+Run: `bun test tests/tools/tools.test.ts -t "include_summary"`
 Expected: PASS
 
 **Step 6: Commit**
@@ -1584,7 +1583,7 @@ describe('getGoals include_history', () => {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "include_history"`
+Run: `bun test tests/tools/tools.test.ts -t "include_history"`
 Expected: FAIL
 
 **Step 3: Update the getGoals method**
@@ -1634,7 +1633,7 @@ include_history: {
 
 **Step 5: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "include_history"`
+Run: `bun test tests/tools/tools.test.ts -t "include_history"`
 Expected: PASS
 
 **Step 6: Commit**
@@ -1704,7 +1703,7 @@ Add `annual_cost: calculateAnnualCost(rec.amount, rec.frequency)` to each subscr
 
 **Step 3: Run tests**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun test tests/tools/tools.test.ts -t "annual cost"`
+Run: `bun test tests/tools/tools.test.ts -t "annual cost"`
 Expected: PASS
 
 **Step 4: Commit**
@@ -1737,7 +1736,7 @@ Follow the existing pattern in `manifest.json` — each tool has `name` and `des
 
 **Step 2: Run sync check**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun run sync-manifest`
+Run: `bun run sync-manifest`
 Expected: Manifest matches code (or auto-fixes)
 
 **Step 3: Commit**
@@ -1771,7 +1770,7 @@ git commit -m "docs: document balance_history and holdings_history collection sc
 
 **Step 1: Run full check**
 
-Run: `cd /Users/parker/copilot-money-mcp && bun run check`
+Run: `bun run check`
 
 This runs: typecheck + lint + format:check + test (772+ tests)
 
