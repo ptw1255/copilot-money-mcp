@@ -1373,6 +1373,99 @@ describe('CopilotMoneyTools - Recurring Transactions Detail View', () => {
     expect(result.copilot_subscriptions?.paused?.length).toBe(1);
     expect(result.copilot_subscriptions?.archived?.length).toBe(1);
   });
+
+  test('subscriptions include annual_cost field', async () => {
+    const mockRecurringWithFrequency = [
+      {
+        recurring_id: 'rec_monthly',
+        name: 'Netflix',
+        amount: 10.0,
+        merchant_name: 'Netflix',
+        category_id: 'entertainment',
+        account_id: 'acc1',
+        frequency: 'monthly',
+        state: 'active',
+        next_date: '2026-04-01',
+      },
+      {
+        recurring_id: 'rec_weekly',
+        name: 'Gym',
+        amount: 20.0,
+        merchant_name: 'Planet Fitness',
+        category_id: 'fitness',
+        account_id: 'acc1',
+        frequency: 'weekly',
+        state: 'active',
+        next_date: '2026-04-01',
+      },
+      {
+        recurring_id: 'rec_yearly',
+        name: 'Domain',
+        amount: 12.0,
+        merchant_name: 'GoDaddy',
+        category_id: 'tech',
+        account_id: 'acc1',
+        frequency: 'annually',
+        state: 'active',
+        next_date: '2026-12-01',
+      },
+    ];
+    (db as any)._recurring = mockRecurringWithFrequency;
+    (db as any)._transactions = [];
+
+    const result = await tools.getRecurringTransactions({});
+
+    expect(result.copilot_subscriptions).toBeDefined();
+
+    // All subscription items across all groups should have annual_cost
+    const allItems = [
+      ...(result.copilot_subscriptions?.this_month ?? []),
+      ...(result.copilot_subscriptions?.overdue ?? []),
+      ...(result.copilot_subscriptions?.future ?? []),
+      ...(result.copilot_subscriptions?.paused ?? []),
+      ...(result.copilot_subscriptions?.archived ?? []),
+    ];
+
+    // At least our 3 active subscriptions are present somewhere
+    expect(allItems.length).toBeGreaterThanOrEqual(3);
+
+    // Check specific annual costs
+    const netflix = allItems.find((i) => i.name === 'Netflix');
+    expect(netflix?.annual_cost).toBe(120); // $10/month * 12
+
+    const gym = allItems.find((i) => i.name === 'Gym');
+    expect(gym?.annual_cost).toBe(1040); // $20/week * 52
+
+    const domain = allItems.find((i) => i.name === 'Domain');
+    expect(domain?.annual_cost).toBe(12); // $12/year * 1
+  });
+
+  test('total_annual_cost is present in summary', async () => {
+    const mockRecurringForAnnual = [
+      {
+        recurring_id: 'rec1',
+        name: 'Netflix',
+        amount: 10.0,
+        frequency: 'monthly',
+        state: 'active',
+        next_date: '2026-04-01',
+      },
+      {
+        recurring_id: 'rec2',
+        name: 'Spotify',
+        amount: 5.0,
+        frequency: 'monthly',
+        state: 'active',
+        next_date: '2026-04-01',
+      },
+    ];
+    (db as any)._recurring = mockRecurringForAnnual;
+    (db as any)._transactions = [];
+
+    const result = await tools.getRecurringTransactions({});
+
+    expect(result.copilot_subscriptions?.summary?.total_annual_cost).toBe(180); // (10 + 5) * 12
+  });
 });
 
 describe('getCacheInfo', () => {

@@ -175,6 +175,31 @@ function roundAmount(value: number): number {
 }
 
 /**
+ * Calculate the annual cost for a recurring subscription based on its frequency.
+ *
+ * @param amount - The subscription amount (any sign; absolute value is used)
+ * @param frequency - The billing frequency (e.g., 'monthly', 'weekly', 'annually')
+ * @returns Annual cost rounded to 2 decimal places
+ */
+function calculateAnnualCost(amount: number, frequency: string): number {
+  const multipliers: Record<string, number> = {
+    daily: 365,
+    weekly: 52,
+    biweekly: 26,
+    'bi-weekly': 26,
+    monthly: 12,
+    bimonthly: 6,
+    quarterly: 4,
+    quadmonthly: 3,
+    semiannually: 2,
+    'semi-annually': 2,
+    annually: 1,
+    yearly: 1,
+  };
+  return roundAmount(Math.abs(amount) * (multipliers[frequency.toLowerCase()] ?? 12));
+}
+
+/**
  * Gets the category ID or returns the default 'uncategorized'.
  *
  * @param categoryId - The category ID (may be null or undefined)
@@ -1188,6 +1213,7 @@ export class CopilotMoneyTools {
         monthly_cost_estimate: number;
         paid_this_month: number;
         left_to_pay_this_month: number;
+        total_annual_cost: number;
       };
       this_month: Array<{
         recurring_id: string;
@@ -1195,6 +1221,7 @@ export class CopilotMoneyTools {
         emoji?: string;
         amount?: number;
         frequency?: string;
+        annual_cost?: number;
         display_date: string;
         is_paid: boolean;
         category_name?: string;
@@ -1205,6 +1232,7 @@ export class CopilotMoneyTools {
         emoji?: string;
         amount?: number;
         frequency?: string;
+        annual_cost?: number;
         next_date?: string;
         category_name?: string;
       }>;
@@ -1214,6 +1242,7 @@ export class CopilotMoneyTools {
         emoji?: string;
         amount?: number;
         frequency?: string;
+        annual_cost?: number;
         next_date?: string;
         category_name?: string;
       }>;
@@ -1223,6 +1252,7 @@ export class CopilotMoneyTools {
         emoji?: string;
         amount?: number;
         frequency?: string;
+        annual_cost?: number;
         category_name?: string;
       }>;
       archived: Array<{
@@ -1231,6 +1261,7 @@ export class CopilotMoneyTools {
         emoji?: string;
         amount?: number;
         frequency?: string;
+        annual_cost?: number;
         category_name?: string;
       }>;
     };
@@ -1458,6 +1489,7 @@ export class CopilotMoneyTools {
             monthly_cost_estimate: number;
             paid_this_month: number;
             left_to_pay_this_month: number;
+            total_annual_cost: number;
           };
           this_month: Array<{
             recurring_id: string;
@@ -1465,6 +1497,7 @@ export class CopilotMoneyTools {
             emoji?: string;
             amount?: number;
             frequency?: string;
+            annual_cost?: number;
             display_date: string;
             is_paid: boolean;
             category_name?: string;
@@ -1475,6 +1508,7 @@ export class CopilotMoneyTools {
             emoji?: string;
             amount?: number;
             frequency?: string;
+            annual_cost?: number;
             next_date?: string;
             category_name?: string;
           }>;
@@ -1484,6 +1518,7 @@ export class CopilotMoneyTools {
             emoji?: string;
             amount?: number;
             frequency?: string;
+            annual_cost?: number;
             next_date?: string;
             category_name?: string;
           }>;
@@ -1493,6 +1528,7 @@ export class CopilotMoneyTools {
             emoji?: string;
             amount?: number;
             frequency?: string;
+            annual_cost?: number;
             category_name?: string;
           }>;
           archived: Array<{
@@ -1501,6 +1537,7 @@ export class CopilotMoneyTools {
             emoji?: string;
             amount?: number;
             frequency?: string;
+            annual_cost?: number;
             category_name?: string;
           }>;
         }
@@ -1583,6 +1620,10 @@ export class CopilotMoneyTools {
           emoji: rec.emoji,
           amount: rec.amount,
           frequency: rec.frequency,
+          ...(rec.amount !== undefined &&
+            rec.frequency && {
+              annual_cost: calculateAnnualCost(rec.amount, rec.frequency),
+            }),
           category_name: rec.category_id
             ? await this.resolveCategoryName(rec.category_id)
             : undefined,
@@ -1595,6 +1636,7 @@ export class CopilotMoneyTools {
           emoji?: string;
           amount?: number;
           frequency?: string;
+          annual_cost?: number;
           display_date: string;
           is_paid: boolean;
           category_name?: string;
@@ -1605,6 +1647,7 @@ export class CopilotMoneyTools {
           emoji?: string;
           amount?: number;
           frequency?: string;
+          annual_cost?: number;
           next_date?: string;
           category_name?: string;
         }> = [];
@@ -1614,6 +1657,7 @@ export class CopilotMoneyTools {
           emoji?: string;
           amount?: number;
           frequency?: string;
+          annual_cost?: number;
           next_date?: string;
           category_name?: string;
         }> = [];
@@ -1693,6 +1737,14 @@ export class CopilotMoneyTools {
         pausedItems.sort((a, b) => a.name.localeCompare(b.name));
         archivedItems.sort((a, b) => a.name.localeCompare(b.name));
 
+        // Calculate total annual cost from all active subscriptions
+        let totalAnnualCost = 0;
+        for (const rec of active) {
+          if (rec.amount !== undefined && rec.frequency) {
+            totalAnnualCost += calculateAnnualCost(rec.amount, rec.frequency);
+          }
+        }
+
         copilotSubscriptions = {
           summary: {
             total_active: active.length,
@@ -1701,6 +1753,7 @@ export class CopilotMoneyTools {
             monthly_cost_estimate: roundAmount(monthlyCostEstimate),
             paid_this_month: roundAmount(paidThisMonth),
             left_to_pay_this_month: roundAmount(leftToPayThisMonth),
+            total_annual_cost: roundAmount(totalAnnualCost),
           },
           this_month: thisMonthItems,
           overdue: overdueItems,
